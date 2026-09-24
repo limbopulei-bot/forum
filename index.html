@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fsociety // public channel</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#080808;color:#c8c8c8;font:14px Arial,sans-serif}
+header{height:58px;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:#0b0b0b}
+.logo{font:20px monospace;letter-spacing:2px}.wrap{max-width:1100px;margin:auto;padding:15px}
+.panel{border:1px solid #333;background:#0d0d0d;padding:14px}.hidden{display:none!important}
+input,textarea{background:#050505;color:#ddd;border:1px solid #444;padding:11px;width:100%;outline:none}
+button{background:#111;color:#ddd;border:1px solid #555;padding:10px 14px;cursor:pointer}
+button:hover{background:#1b1b1b}.auth{max-width:460px;margin:80px auto}.row{display:flex;gap:8px;margin-top:9px}
+#chat{height:calc(100vh - 125px);display:flex;flex-direction:column}.messages{flex:1;overflow:auto;border:1px solid #292929;padding:12px;background:#050505}
+.msg{padding:9px 4px;border-bottom:1px solid #181818}.name{color:#eee;font-weight:bold}.time{color:#555;font-size:11px}.file{margin-top:6px}
+.notice{padding:10px;border:1px solid #555;background:#161616;margin-bottom:10px}.composer{display:flex;gap:8px;margin-top:9px}.composer textarea{height:48px;resize:none}.composer button{height:48px}
+.top-actions{display:flex;gap:7px}.muted{color:#666}.error{color:#b66;margin-top:8px}
+.admin{max-width:900px;margin:30px auto}.user{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #222;padding:10px 0}.actions{display:flex;gap:5px;flex-wrap:wrap}
+</style></head>
+<body>
+<header><div class="logo">fsociety // public</div><div id="top"></div></header>
+
+<section id="auth" class="auth panel">
+<h2>ENTRAR NO CHAT</h2>
+<input id="user" placeholder="Nome de usuário">
+<div class="row"><input id="pass" type="password" placeholder="Senha"><button onclick="login()">Entrar</button></div>
+<button onclick="register()" style="margin-top:9px;width:100%">Criar conta</button>
+<div id="err" class="error"></div>
+</section>
+
+<section id="app" class="wrap hidden">
+<div id="notice"></div>
+<div id="chat" class="panel">
+<div id="messages" class="messages"></div>
+<div class="composer"><textarea id="text" placeholder="Escreva uma mensagem..."></textarea><button onclick="send()">Enviar</button><label><button onclick="document.getElementById('file').click()">Arquivo</button><input id="file" type="file" hidden onchange="upload()"></label></div>
+</div>
+</section>
+
+<section id="adminLogin" class="auth panel hidden">
+<h2>ADMIN</h2><input id="adminPass" type="password" placeholder="senha"><button onclick="adminLogin()" style="margin-top:9px;width:100%">Entrar</button><div id="aerr" class="error"></div>
+</section>
+
+<section id="admin" class="admin panel hidden">
+<h2>PAINEL DO DONO</h2>
+<div class="panel"><b>Aviso global</b><input id="noticeText" placeholder="Mensagem que aparecerá para todos" style="margin-top:8px"><button onclick="notice()" style="margin-top:8px">Enviar aviso</button></div>
+<div class="panel" style="margin-top:12px"><b>Redirecionar todos</b><input id="redirectUrl" placeholder="https://exemplo.com" style="margin-top:8px"><button onclick="redirectAll()" style="margin-top:8px">Redirecionar</button></div>
+<h3>Usuários</h3><div id="users"></div>
+</section>
+
+<script>
+let me=null, ws=null;
+const $=id=>document.getElementById(id);
+async function api(url,opt={}){const r=await fetch(url,{...opt,headers:{"Content-Type":"application/json",...(opt.headers||{})}});const d=await r.json();if(!r.ok)throw Error(d.error||"erro");return d}
+async function login(){try{const d=await api("/api/login",{method:"POST",body:JSON.stringify({username:$("user").value,password:$("pass").value})});me=d.user;start()}catch(e){$("err").textContent=e.message}}
+async function register(){try{const d=await api("/api/register",{method:"POST",body:JSON.stringify({username:$("user").value,password:$("pass").value})});me=d.user;start()}catch(e){$("err").textContent=e.message}}
+async function start(){ $("auth").classList.add("hidden");$("app").classList.remove("hidden");$("top").innerHTML=`${me.username} · <button onclick="logout()">sair</button>`;load();ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);ws.onmessage=e=>{const x=JSON.parse(e.data);if(x.type==="message")add(x.message);if(x.type==="notice")showNotice(x.text);if(x.type==="redirect")location.href=x.url;if(x.type==="adminUpdate")loadAdmin()} }
+async function load(){const d=await api("/api/messages");$("messages").innerHTML="";d.messages.forEach(add);showNotice(d.notice)}
+function add(m){const el=document.createElement("div");el.className="msg";let body="";if(m.text)body=`<div>${escape(m.text)}</div>`;if(m.file){body+=`<div class=file><a href="${m.file.url}" target="_blank">${escape(m.file.name)}</a></div>`}el.innerHTML=`<span class=name>${escape(m.username)}</span> <span class=time>${new Date(m.ts).toLocaleTimeString()}</span>${body}`;$("messages").appendChild(el);$("messages").scrollTop=$("messages").scrollHeight}
+function showNotice(t){$("notice").innerHTML=t?`<div class=notice>⚠ ${escape(t)}</div>`:""}
+async function send(){const t=$("text").value.trim();if(!t)return;await api("/api/message",{method:"POST",body:JSON.stringify({text:t})});$("text").value=""}
+async function upload(){const f=$("file").files[0];if(!f)return;const fd=new FormData();fd.append("file",f);const r=await fetch("/api/upload",{method:"POST",body:fd});if(!r.ok)alert((await r.json()).error);$("file").value=""}
+async function logout(){await api("/api/logout",{method:"POST"});location.reload()}
+function escape(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function admin(){ $("auth").classList.add("hidden");$("adminLogin").classList.remove("hidden")}
+async function adminLogin(){try{await api("/api/admin/login",{method:"POST",body:JSON.stringify({password:$("adminPass").value})});$("adminLogin").classList.add("hidden");$("admin").classList.remove("hidden");loadAdmin()}catch(e){$("aerr").textContent=e.message}}
+async function loadAdmin(){const d=await api("/api/admin/users");$("users").innerHTML=d.users.map(u=>`<div class=user><div><b>${escape(u.username)}</b> · ${u.role} · ${u.banned?"BANIDO":"ativo"}</div><div class=actions>${u.banned?`<button onclick="act('${u.id}','unban')">desbanir</button>`:`<button onclick="act('${u.id}','ban')">banir</button>`}<button onclick="act('${u.id}','kick')">expulsar</button><button onclick="role('${u.id}','moderator')">moderador</button><button onclick="role('${u.id}','admin')">admin</button></div></div>`).join("")}
+async function act(id,a){await api("/api/admin/action",{method:"POST",body:JSON.stringify({action:a,userId:id})});loadAdmin()}
+async function role(id,r){await api("/api/admin/action",{method:"POST",body:JSON.stringify({action:"role",userId:id,role:r})});loadAdmin()}
+async function notice(){await api("/api/admin/notice",{method:"POST",body:JSON.stringify({text:$("noticeText").value})})}
+async function redirectAll(){await api("/api/admin/redirect",{method:"POST",body:JSON.stringify({url:$("redirectUrl").value})})}
+document.addEventListener("keydown",e=>{if(e.ctrlKey&&e.shiftKey&&e.key.toUpperCase()==="A"){e.preventDefault();admin()}});
+</script>
+</body></html>
